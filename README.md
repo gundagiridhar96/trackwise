@@ -1,141 +1,167 @@
-// ============================================================
-//  TrackWise — Auth + Per-User Database
-//  All data is stored in localStorage, isolated per user email.
-//
-//  Storage layout:
-//    tw_users              → { [email]: userObject }
-//    tw_session            → current logged-in user (sessionStorage)
-//    tw_tx_{email}         → array of that user's transactions
-// ============================================================
+# TrackWise — Relational Expense Analytics Platform
 
-const AUTH = {
-  SESSION_KEY: 'tw_session',
-  USERS_KEY:   'tw_users',
+A dynamic, fully client-side expense analytics dashboard with Indian Rupee (₹) support, login/signup, and relational transaction intelligence.
 
-  // ── Helpers ──────────────────────────────────────────────────
-  _txKey(email) { return 'tw_tx_' + email.toLowerCase().trim(); },
+---
 
-  _read(key, storage, fallback) {
-    try { const v = storage.getItem(key); return v ? JSON.parse(v) : fallback; }
-    catch { return fallback; }
-  },
-  _write(key, val, storage) {
-    try { storage.setItem(key, JSON.stringify(val)); return true; }
-    catch(e) { console.error('TrackWise storage error:', e); return false; }
-  },
+## 📁 File Structure
 
-  // ── User store ────────────────────────────────────────────────
-  getUsers()      { return this._read(this.USERS_KEY, localStorage, {}); },
-  saveUsers(u)    { this._write(this.USERS_KEY, u, localStorage); },
+```
+trackwise/
+├── login.html    ← START HERE — Sign In / Sign Up page
+├── index.html    ← Main dashboard (redirects to login if not signed in)
+├── style.css     ← All visual styles
+├── data.js       ← Default transaction data & config
+└── app.js        ← All dynamic rendering logic
+```
 
-  // ── Session ───────────────────────────────────────────────────
-  getSession()    { return this._read(this.SESSION_KEY, sessionStorage, null); },
-  setSession(u)   { this._write(this.SESSION_KEY, u, sessionStorage); },
-  clearSession()  { sessionStorage.removeItem(this.SESSION_KEY); },
+---
 
-  // ── Per-user transaction database ────────────────────────────
-  // Every add / delete / update calls saveTx so data is always persisted.
+## 🚀 How to Run
 
-  loadTx(email) {
-    return this._read(this._txKey(email), localStorage, []);
-  },
+### Option 1 — Direct (simplest)
+1. Unzip `trackwise.zip` into any folder
+2. Double-click **`login.html`** to open in your browser
+3. Sign up with your name, email, password, salary & spending threshold
+4. You'll be redirected to the dashboard automatically
 
-  saveTx(email, txArray) {
-    return this._write(this._txKey(email), txArray, localStorage);
-  },
+> **Tip:** Works best in Chrome, Firefox, or Edge.
 
-  addTx(email, tx) {
-    const txs = this.loadTx(email);
-    txs.unshift(tx);           // newest first
-    this.saveTx(email, txs);
-    return txs;
-  },
+### Option 2 — Local Server (recommended)
+```bash
+cd trackwise
+python3 -m http.server 5500
+```
+Then open: **http://localhost:5500/login.html**
 
-  updateTx(email, id, patch) {
-    const txs = this.loadTx(email).map(t => t.id === id ? { ...t, ...patch } : t);
-    this.saveTx(email, txs);
-    return txs;
-  },
+---
 
-  deleteTx(email, id) {
-    const txs = this.loadTx(email).filter(t => t.id !== id);
-    this.saveTx(email, txs);
-    return txs;
-  },
+## 👤 Login / Sign Up Features
 
-  clearTx(email) {
-    this.saveTx(email, []);
-    return [];
-  },
+| Feature | Details |
+|---|---|
+| **Sign Up** | Name, username, email, password, monthly salary, spending threshold |
+| **Password strength** | Live strength meter (weak → very strong) |
+| **Username check** | Real-time availability indicator |
+| **Threshold slider** | Set your monthly limit with a drag slider |
+| **Auto-suggest** | Threshold auto-fills to 50% of your salary |
+| **Sign In** | Username or email + password |
+| **Quick access** | Chips for previously registered users |
+| **Remember me** | Keeps username on next visit |
+| **Session guard** | Dashboard redirects to login if not signed in |
+| **Sign Out** | Available from avatar menu in top-right |
 
-  // ── Password hash (demo-grade, not cryptographic) ─────────────
-  hash(s) {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
-    return (h >>> 0).toString(36);
-  },
+> All data is stored in browser `localStorage` — nothing is sent to any server.
 
-  // ── Sign Up ───────────────────────────────────────────────────
-  signUp(name, email, password, threshold) {
-    if (!name.trim())         return { ok:false, msg:'Full name is required.' };
-    if (!email.includes('@')) return { ok:false, msg:'Enter a valid email address.' };
-    if (password.length < 6)  return { ok:false, msg:'Password needs at least 6 characters.' };
-    if (+threshold < 500)     return { ok:false, msg:'Monthly budget must be at least ₹500.' };
+---
 
-    const users = this.getUsers();
-    const key   = email.toLowerCase().trim();
-    if (users[key]) return { ok:false, msg:'An account already exists for this email. Sign in instead.' };
+## ✏️ How to Customise
 
-    const user = {
-      name:      name.trim(),
-      email:     key,
-      password:  this.hash(password),
-      threshold: parseInt(threshold),
-      initials:  name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
-      createdAt: Date.now(),
-    };
-    users[key] = user;
-    this.saveUsers(users);
-    this.setSession(user);
-    // Initialise empty transaction store for this user
-    if (!localStorage.getItem(this._txKey(key))) this.saveTx(key, []);
-    return { ok:true, user };
-  },
+Edit **`data.js`** to change default transactions, categories, and accounts.
 
-  // ── Sign In ───────────────────────────────────────────────────
-  signIn(email, password) {
-    const users = this.getUsers();
-    const key   = email.toLowerCase().trim();
-    const user  = users[key];
-    if (!user)                              return { ok:false, msg:'No account found for that email.' };
-    if (user.password !== this.hash(password)) return { ok:false, msg:'Incorrect password. Try again.' };
-    this.setSession(user);
-    return { ok:true, user };
-  },
+---
 
-  // ── Update profile (threshold, name etc.) ────────────────────
-  updateProfile(email, patch) {
-    const users = this.getUsers();
-    const key   = email.toLowerCase().trim();
-    if (!users[key]) return false;
-    users[key] = { ...users[key], ...patch };
-    this.saveUsers(users);
-    this.setSession(users[key]);   // refresh session
-    return true;
-  },
+## 🎛️ Dashboard Features
+- Add / delete expenses live
+- Filter by category, status, search
+- Analytics & Relations views
+- Budget threshold warnings
+- Spending trend chart, donut chart, relation graph
+- CSV export
 
-  // ── Logout ────────────────────────────────────────────────────
-  logout() { this.clearSession(); window.location.replace('login.html'); },
 
-  // ── Guard: call at top of every protected page ────────────────
-  requireAuth() {
-    const s = this.getSession();
-    if (!s) { window.location.replace('login.html'); return null; }
-    return s;
-  },
+---
 
-  // ── Redirect already-logged-in users from login page ─────────
-  redirectIfLoggedIn() {
-    if (this.getSession()) window.location.replace('index.html');
-  },
+## 📁 File Structure
+
+```
+trackwise/
+├── index.html    ← Main page (open this in your browser)
+├── style.css     ← All visual styles
+├── data.js       ← Your data: transactions, accounts, config
+└── app.js        ← All dynamic rendering logic
+```
+
+---
+
+## 🚀 How to Run
+
+### Option 1 — Direct (simplest)
+1. Unzip `trackwise.zip` into any folder
+2. Double-click `index.html` to open it in your browser
+3. That's it! No server, no install needed.
+
+> **Tip:** Works best in Chrome, Firefox, or Edge. Requires internet for Google Fonts (optional — fonts fall back gracefully offline).
+
+### Option 2 — Local Server (recommended for best experience)
+If you have Python installed:
+```bash
+cd trackwise
+python3 -m http.server 5500
+```
+Then open: **http://localhost:5500**
+
+Or with Node.js:
+```bash
+npx serve .
+```
+
+---
+
+## ✏️ How to Customise
+
+All your data lives in **`data.js`** — edit it in any text editor.
+
+### Change your name / currency / budget:
+```js
+const APP_CONFIG = {
+  currency: '₹',          // change to '$', '€', etc.
+  locale: 'en-IN',        // affects number formatting
+  monthlyBudget: 50000,   // your monthly limit
+  userName: 'Arjun',
+  userInitials: 'AJ',
 };
+```
+
+### Add a transaction (in TRANSACTIONS array):
+```js
+{
+  id: 16,
+  icon: '🍕',
+  name: 'Pizza Hut',
+  relation: 'friday dinner',
+  date: 'Mar 23',
+  cat: 'Food',           // Food | Travel | Shopping | Health | Entertainment | Utilities
+  amount: -450,          // negative = expense, positive = income
+  status: 'cleared',     // cleared | pending | flagged
+  tags: ['weekend', 'food-delivery'],
+}
+```
+
+### Add an account (in ACCOUNTS array):
+```js
+{ id: 'icici', name: 'ICICI Credit Card', icon: '💳', balance: -8400, type: 'credit' }
+```
+
+---
+
+## 🎛️ Features
+
+| Feature | Description |
+|---|---|
+| **+ Add Expense** | Click top-right button to add transactions live |
+| **Search** | Type in the search bar to filter transactions instantly |
+| **Filter tabs** | All / Cleared / Pending / Flagged tabs on the table |
+| **Relation Graph** | Click any node to highlight related transactions |
+| **Tag Cloud** | Click a tag to filter transactions by that tag |
+| **Export CSV** | Downloads all transactions as a spreadsheet |
+| **Spending Chart** | Toggle Actual / Last Month / Budget lines |
+| **Heatmap** | Hover cells to see daily spend estimates |
+| **Transaction Detail** | Click any row for full details + flag resolution |
+
+---
+
+## 🛠️ Tech Stack
+- Vanilla HTML + CSS + JavaScript (zero dependencies)
+- Google Fonts: Syne + DM Mono
+- SVG for charts and graphs (no chart library needed)
